@@ -788,6 +788,47 @@ void stop_inactive_recorders() {
       }*/
 }
 
+void end_trunked_call(Call *call) {
+  BOOST_LOG_TRIVIAL(trace) << "Ending call for TG " << call->get_talkgroup();
+
+  if (call->get_state() == recording) {
+    stats.send_calls_active(calls);
+  }
+
+  Recorder *recorder = call->get_recorder();
+  call->end_call();
+  stats.send_call_end(call);
+  if (recorder != NULL) {
+    stats.send_recorder(recorder);
+  }
+
+  auto it = std::find(calls.begin(), calls.end(), call);
+  calls.erase(it);
+  delete call;
+}
+
+void end_calls_on_freq(double freq) {
+  BOOST_LOG_TRIVIAL(trace) << "Looking for calls on " << FormatFreq(freq);
+
+  std::vector<Call*> calls_to_delete;
+
+  for (std::vector<Call*>::iterator it = calls.begin(); it != calls.end(); it++) {
+    Call *call = *it;
+
+    BOOST_LOG_TRIVIAL(trace) << "[call] TG: " << call->get_talkgroup() << ", Freq: " << FormatFreq(call->get_freq());
+
+    if (call->get_freq() == freq) {
+      BOOST_LOG_TRIVIAL(info) << "\u001b[31mEnding obsolete call for talkgroup " << call->get_talkgroup() << " (" << call->get_talkgroup_tag() << ") on frequency " << FormatFreq(freq) << "\u001b[0m";
+      calls_to_delete.push_back(call);
+    }
+  }
+
+  for (std::vector<Call*>::iterator it = calls_to_delete.begin(); it != calls_to_delete.end(); it++) {
+    Call *call = *it;
+    end_trunked_call(call);
+  }
+}
+
 void print_status() {
   BOOST_LOG_TRIVIAL(info) << "Currently Active Calls: " << calls.size();
 
@@ -825,6 +866,8 @@ bool retune_recorder(TrunkMessage message, Call *call) {
     recorder->set_tdma_slot(message.tdma_slot);
     call->set_tdma_slot(message.tdma_slot);
   }
+
+  BOOST_LOG_TRIVIAL(trace) << "Attempting to retune call for TG " << call->get_talkgroup() << ": old " << FormatFreq(call->get_freq()) << ", new " << FormatFreq(message.freq);
 
   if (message.freq != call->get_freq()) {
     if ((source->get_min_hz() <= message.freq) && (source->get_max_hz() >= message.freq)) {
@@ -895,10 +938,11 @@ void handle_call(TrunkMessage message, System *sys) {
           int retuned = retune_recorder(message, call);
 
           if (!retuned) {
-            // we want to keep this call recording and now start a recording of the new call on another recorder
+            // We want to end this call and start a new call using a recorder that supports the new frequency
             call_found = false;
             retune_failed = true;
-            ++it; // go on to the next call, remember there may be two calls
+            end_trunked_call(call);
+            break;
           } else {
             // if you did retune, update the call info
             BOOST_LOG_TRIVIAL(info) << "[" << sys->get_short_name() << "]\tTG: " << call->get_talkgroup_display() << "\tFreq: " << FormatFreq(call->get_freq()) << "\tUpdate Retuning - New Freq: " << FormatFreq(message.freq) << "\tElapsed: " << call->elapsed() << "s \tSince update: " << call->since_last_update() << "s";
@@ -926,10 +970,16 @@ void handle_call(TrunkMessage message, System *sys) {
     }
   }
 
+  if (!call_found || call_retune || retune_failed) {
+    // If we're about to start recording on a new frequency, first end any active calls on that frequency
+    end_calls_on_freq(message.freq);
+  }
+
   if (!call_found) {
     if (retune_failed) {
       BOOST_LOG_TRIVIAL(info) << "\t - Retune failed, starting a new recording using a new source";
     }
+
     Call *call = new Call(message, sys, config);
     recording_started = start_recorder(call, message, sys);
     calls.push_back(call);
