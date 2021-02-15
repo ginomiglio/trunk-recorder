@@ -69,6 +69,7 @@ public:
   void stop();
   double get_freq();
   Source *get_source();
+  void update_source(Source *new_source);
   long get_talkgroup();
   time_t get_start_time();
   char *get_filename();

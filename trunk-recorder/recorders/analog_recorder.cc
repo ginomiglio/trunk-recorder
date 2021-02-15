@@ -4,6 +4,7 @@
 #include "../../lib/gr_blocks/nonstop_wavfile_sink_impl.h"
 #include "../formatter.h"
 #include "../recorder_globals.h"
+#include <stdexcept>
 
 using namespace std;
 
@@ -135,7 +136,7 @@ analog_recorder::analog_recorder(Source *src)
   squelch_two = gr::analog::pwr_squelch_ff::make(-200, 0.01, 0, true);
 
   // k = quad_rate/(2*math.pi*max_dev) = 48k / (6.283185*5000) = 1.527
-  
+
   int d_max_dev = 5000;
   /* demodulator gain */
   quad_gain = system_channel_rate / (2.0 * M_PI * d_max_dev);
@@ -247,6 +248,20 @@ double analog_recorder::get_freq() {
 
 Source *analog_recorder::get_source() {
   return source;
+}
+
+void analog_recorder::update_source(Source *new_source) {
+  if (!new_source) {
+    throw invalid_argument("new_source is null");
+  }
+
+  BOOST_LOG_TRIVIAL(info) << "UPDATING SOURCE!!!!!! dear god";
+
+  valve->set_enabled(false);
+
+  source = new_source;
+
+  valve->set_enabled(true);
 }
 
 int analog_recorder::lastupdate() {

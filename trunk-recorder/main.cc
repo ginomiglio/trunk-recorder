@@ -576,6 +576,18 @@ int get_total_recorders() {
   return total_recorders;
 }
 
+Source *find_source_for_freq(double freq) {
+  for (vector<Source *>::iterator it = sources.begin(); it != sources.end(); it++) {
+    Source *source = *it;
+
+    if (source->get_min_hz() <= freq && source->get_max_hz() >= freq) {
+      return source;
+    }
+  }
+
+  return NULL;
+}
+
 /**
  * Method name: start_recorder
  * Description: <#description#>
@@ -803,17 +815,6 @@ void print_status() {
   }
 }
 
-Source *find_source_for_freq(double freq) {
-  for (vector<Source *>::iterator it = sources.begin(); it != sources.end(); it++) {
-  Source *source = *it;
-
-  if (source->get_min_hz() <= freq && source->get_max_hz() >= freq) {
-    return source;
-  }
-
-  return NULL;
-}
-
 bool retune_recorder(TrunkMessage message, Call *call) {
   Recorder *recorder = call->get_recorder();
   Source *source = recorder->get_source();
@@ -832,28 +833,30 @@ bool retune_recorder(TrunkMessage message, Call *call) {
   }
 
   if (message.freq != call->get_freq()) {
+    // Retune recorder if possible, otherwise switch it to a different source
     if ((source->get_min_hz() <= message.freq) && (source->get_max_hz() >= message.freq)) {
       recorder->tune_freq(message.freq);
-
-      // only set the call freq, if the recorder can be retuned.
-      // set the call to the new Freq / TDMA slot
-      call->set_freq(message.freq);
-      call->set_phase2_tdma(message.phase2_tdma);
-      call->set_tdma_slot(message.tdma_slot);
-
-      if (call->get_debug_recording() == true) {
-        call->get_debug_recorder()->tune_offset(message.freq);
-      }
-      return true;
     } else {
-      // TODO: Find the source that has the frequency on it, update our recorder to use that source for the rest of the call
+      Source *new_source = find_source_for_freq(message.freq);
 
+      if (!new_source) {
+        // Couldn't find a source that covers the new frequency
+        return false;
+      }
 
+      // Update the recorder to use the new source
+      recorder->update_source(new_source);
+    }
 
-      //Couldn't find a source that covers it
-      return false;
+    call->set_freq(message.freq);
+    call->set_phase2_tdma(message.phase2_tdma);
+    call->set_tdma_slot(message.tdma_slot);
+
+    if (call->get_debug_recording() == true) {
+      call->get_debug_recorder()->tune_offset(message.freq);
     }
   }
+
   return true;
 }
 

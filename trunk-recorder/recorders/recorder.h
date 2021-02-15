@@ -74,6 +74,7 @@ public:
   virtual void set_tdma_slot(int slot){};
   virtual double get_freq() { return 0; };
   virtual Source *get_source() { return NULL; };
+  virtual void update_source(Source *new_source){};
   virtual Call_Source *get_source_list() { return NULL; };
   virtual int get_num() { return -1; };
   virtual long get_source_count() { return 0; };
