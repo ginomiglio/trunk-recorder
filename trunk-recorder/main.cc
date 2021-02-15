@@ -627,85 +627,79 @@ bool start_recorder(Call *call, TrunkMessage message, System *sys) {
     return false;
   }
 
-  for (vector<Source *>::iterator it = sources.begin(); it != sources.end(); it++) {
-    Source *source = *it;
+  Source *source = find_source_for_freq(call->get_freq());
 
-    if ((source->get_min_hz() <= call->get_freq()) &&
-        (source->get_max_hz() >= call->get_freq())) {
-      source_found = true;
-
-      if (talkgroup) {
-        if (talkgroup->mode == 'A') {
-          recorder = source->get_analog_recorder(talkgroup);
-        } else {
-          recorder = source->get_digital_recorder(talkgroup);
-        }
-      } else {
-        BOOST_LOG_TRIVIAL(info) << "[" << sys->get_short_name() << "]\tTG: " << call->get_talkgroup_display() << "\tFreq: " << FormatFreq(call->get_freq()) << "\tTG not in Talkgroup File ";
-
-        // A talkgroup was not found from the talkgroup file.
-        // Use an analog recorder if this is a Type II trunk and defaultMode is analog.
-        // All other cases use a digital recorder.
-        if ((default_mode == "analog") && (sys->get_system_type() == "smartnet")) {
-          recorder = source->get_analog_recorder();
-        } else {
-          recorder = source->get_digital_recorder();
-        }
-      }
-      //int total_recorders = get_total_recorders();
-
-      if (recorder) {
-        if (message.meta.length()) {
-          BOOST_LOG_TRIVIAL(trace) << message.meta;
-        }
-
-        recorder->start(call);
-        call->set_recorder(recorder);
-        call->set_state(recording);
-        stats.send_recorder(recorder);
-        recorder_found = true;
-      } else {
-        // not recording call either because the priority was too low or no
-        // recorders were available
-        return false;
-      }
-
-      debug_recorder = source->get_debug_recorder();
-
-      if (debug_recorder) {
-        debug_recorder->start(call);
-        call->set_debug_recorder(debug_recorder);
-        call->set_debug_recording(true);
-        stats.send_recorder(debug_recorder);
-        recorder_found = true;
-      } else {
-        // BOOST_LOG_TRIVIAL(info) << "\tNot debug recording call";
-      }
-
-      sigmf_recorder = source->get_sigmf_recorder();
-
-      if (sigmf_recorder) {
-        sigmf_recorder->start(call);
-        call->set_sigmf_recorder(sigmf_recorder);
-        call->set_sigmf_recording(true);
-        stats.send_recorder(sigmf_recorder);
-        recorder_found = true;
-      } else {
-        // BOOST_LOG_TRIVIAL(info) << "\tNot debug recording call";
-      }
-
-      if (recorder_found) {
-        // recording successfully started.
-        stats.send_call_start(call);
-        return true;
-      }
-    }
-  }
-
-  if (!source_found) {
+  if (!source) {
     BOOST_LOG_TRIVIAL(info) << "[" << sys->get_short_name() << "]\tTG: " << call->get_talkgroup_display() << "\tFreq: " << FormatFreq(call->get_freq()) << "\t\u001b[36mNot Recording: no source covering Freq\u001b[0m";
     return false;
   }
+
+  if (talkgroup) {
+    if (talkgroup->mode == 'A') {
+      recorder = source->get_analog_recorder(talkgroup);
+    } else {
+      recorder = source->get_digital_recorder(talkgroup);
+    }
+  } else {
+    BOOST_LOG_TRIVIAL(info) << "[" << sys->get_short_name() << "]\tTG: " << call->get_talkgroup_display() << "\tFreq: " << FormatFreq(call->get_freq()) << "\tTG not in Talkgroup File ";
+
+    // A talkgroup was not found from the talkgroup file.
+    // Use an analog recorder if this is a Type II trunk and defaultMode is analog.
+    // All other cases use a digital recorder.
+    if ((default_mode == "analog") && (sys->get_system_type() == "smartnet")) {
+      recorder = source->get_analog_recorder();
+    } else {
+      recorder = source->get_digital_recorder();
+    }
+  }
+  //int total_recorders = get_total_recorders();
+
+  if (recorder) {
+    if (message.meta.length()) {
+      BOOST_LOG_TRIVIAL(trace) << message.meta;
+    }
+
+    recorder->start(call);
+    call->set_recorder(recorder);
+    call->set_state(recording);
+    stats.send_recorder(recorder);
+    recorder_found = true;
+  } else {
+    // not recording call either because the priority was too low or no
+    // recorders were available
+    return false;
+  }
+
+  debug_recorder = source->get_debug_recorder();
+
+  if (debug_recorder) {
+    debug_recorder->start(call);
+    call->set_debug_recorder(debug_recorder);
+    call->set_debug_recording(true);
+    stats.send_recorder(debug_recorder);
+    recorder_found = true;
+  } else {
+    // BOOST_LOG_TRIVIAL(info) << "\tNot debug recording call";
+  }
+
+  sigmf_recorder = source->get_sigmf_recorder();
+
+  if (sigmf_recorder) {
+    sigmf_recorder->start(call);
+    call->set_sigmf_recorder(sigmf_recorder);
+    call->set_sigmf_recording(true);
+    stats.send_recorder(sigmf_recorder);
+    recorder_found = true;
+  } else {
+    // BOOST_LOG_TRIVIAL(info) << "\tNot debug recording call";
+  }
+
+  if (recorder_found) {
+    // recording successfully started.
+    stats.send_call_start(call);
+    return true;
+  }
+
   return false;
 }
 
@@ -751,7 +745,7 @@ void stop_inactive_recorders() {
           }
         }
       } else if (!call->get_recorder()->is_active()) {
-              // P25 Conventional Recorders need a have the graph unlocked before they can start recording.  
+              // P25 Conventional Recorders need a have the graph unlocked before they can start recording.
               Recorder *recorder = call->get_recorder();
               recorder->start(call);
               call->set_state(recording);
@@ -809,6 +803,17 @@ void print_status() {
   }
 }
 
+Source *find_source_for_freq(double freq) {
+  for (vector<Source *>::iterator it = sources.begin(); it != sources.end(); it++) {
+  Source *source = *it;
+
+  if (source->get_min_hz() <= freq && source->get_max_hz() >= freq) {
+    return source;
+  }
+
+  return NULL;
+}
+
 bool retune_recorder(TrunkMessage message, Call *call) {
   Recorder *recorder = call->get_recorder();
   Source *source = recorder->get_source();
@@ -842,6 +847,9 @@ bool retune_recorder(TrunkMessage message, Call *call) {
       return true;
     } else {
       // TODO: Find the source that has the frequency on it, update our recorder to use that source for the rest of the call
+
+
+
       //Couldn't find a source that covers it
       return false;
     }
@@ -1057,45 +1065,38 @@ void retune_system(System *system) {
       BOOST_LOG_TRIVIAL(error) << "\t - Unknown system type for Retune";
     }
   } else {
-    for (vector<Source *>::iterator src_it = sources.begin(); src_it != sources.end(); src_it++) {
-      Source *source = *src_it;
+    Source *source = find_source_for_freq(control_channel_freq);
 
-      if ((source->get_min_hz() <= control_channel_freq) &&
-          (source->get_max_hz() >= control_channel_freq)) {
-        source_found = true;
-        BOOST_LOG_TRIVIAL(info) << "\t - System Source " << source->get_num() << " - Min Freq: " << FormatFreq(source->get_min_hz()) << " Max Freq: " << FormatFreq(source->get_max_hz());
-
-        if (system->get_system_type() == "smartnet") {
-          system->set_source(source);
-          // We must lock the flow graph in order to disconnect and reconnect blocks
-          tb->lock();
-          tb->disconnect(current_source->get_src_block(), 0, system->smartnet_trunking, 0);
-          tb->connect(source->get_src_block(), 0, system->smartnet_trunking, 0);
-          tb->unlock();
-          system->smartnet_trunking->set_center(source->get_center());
-          system->smartnet_trunking->set_rate(source->get_rate());
-          system->smartnet_trunking->tune_freq(control_channel_freq);
-        } else if (system->get_system_type() == "p25") {
-          system->set_source(source);
-          // We must lock the flow graph in order to disconnect and reconnect blocks
-          tb->lock();
-          tb->disconnect(current_source->get_src_block(), 0, system->p25_trunking, 0);
-          tb->connect(source->get_src_block(), 0, system->p25_trunking, 0);
-          tb->unlock();
-          system->p25_trunking->set_center(source->get_center());
-          system->p25_trunking->set_rate(source->get_rate());
-          system->p25_trunking->tune_freq(control_channel_freq);
-        } else {
-          BOOST_LOG_TRIVIAL(error) << "\t - Unkown system type for Retune";
-        }
-
-        // break out of the For Loop
-        break;
-      }
+    if (!source) {
+      BOOST_LOG_TRIVIAL(error) << "\t - Unable to retune System control channel, freq not covered by any source.";
+      return;
     }
-  }
-  if (!source_found) {
-    BOOST_LOG_TRIVIAL(error) << "\t - Unable to retune System control channel, freq not covered by any source.";
+
+    BOOST_LOG_TRIVIAL(info) << "\t - System Source " << source->get_num() << " - Min Freq: " << FormatFreq(source->get_min_hz()) << " Max Freq: " << FormatFreq(source->get_max_hz());
+
+    if (system->get_system_type() == "smartnet") {
+      system->set_source(source);
+      // We must lock the flow graph in order to disconnect and reconnect blocks
+      tb->lock();
+      tb->disconnect(current_source->get_src_block(), 0, system->smartnet_trunking, 0);
+      tb->connect(source->get_src_block(), 0, system->smartnet_trunking, 0);
+      tb->unlock();
+      system->smartnet_trunking->set_center(source->get_center());
+      system->smartnet_trunking->set_rate(source->get_rate());
+      system->smartnet_trunking->tune_freq(control_channel_freq);
+    } else if (system->get_system_type() == "p25") {
+      system->set_source(source);
+      // We must lock the flow graph in order to disconnect and reconnect blocks
+      tb->lock();
+      tb->disconnect(current_source->get_src_block(), 0, system->p25_trunking, 0);
+      tb->connect(source->get_src_block(), 0, system->p25_trunking, 0);
+      tb->unlock();
+      system->p25_trunking->set_center(source->get_center());
+      system->p25_trunking->set_rate(source->get_rate());
+      system->p25_trunking->tune_freq(control_channel_freq);
+    } else {
+      BOOST_LOG_TRIVIAL(error) << "\t - Unkown system type for Retune";
+    }
   }
 }
 
@@ -1236,55 +1237,48 @@ bool monitor_system() {
       for (vector<double>::iterator chan_it = channels.begin(); chan_it != channels.end(); chan_it++) {
         double channel = *chan_it;
         ++tg_iterate_index;
-        bool channel_added = false;
 
-        for (vector<Source *>::iterator src_it = sources.begin(); src_it != sources.end(); src_it++) {
-          source = *src_it;
+        source = find_source_for_freq(channel);
 
-          if ((source->get_min_hz() <= channel) && (source->get_max_hz() >= channel)) {
-            channel_added = true;
-            if (system->get_squelch_db() == -160) {
-              BOOST_LOG_TRIVIAL(error) << "[" << system->get_short_name() << "]\tSquelch needs to be specified for the Source for Conventional Systems";
-              system_added = false;
-            } else {
-              system_added = true;
-            }
-
-            // This source can be used for this channel (and a squelch is set)
-            BOOST_LOG_TRIVIAL(info) << "[" << system->get_short_name() << "]\tMonitoring Conventional Channel: " << FormatFreq(channel) << " Talkgroup: " << tg_iterate_index;
-            Call_conventional *call = new Call_conventional(tg_iterate_index, channel, system, config);
-            Talkgroup *talkgroup = system->find_talkgroup(call->get_talkgroup());
-
-            if (talkgroup) {
-              call->set_talkgroup_tag(talkgroup->alpha_tag);
-            }
-
-            if (system->get_system_type() == "conventional") {
-              analog_recorder_sptr rec;
-              rec = source->create_conventional_recorder(tb);
-              rec->start(call);
-              call->set_recorder((Recorder *)rec.get());
-              call->set_state(recording);
-              system->add_conventional_recorder(rec);
-              calls.push_back(call);
-              stats.send_recorder((Recorder *)rec.get());
-            } else { // has to be "conventional P25"
-              // Because of dynamic mod assignment we can not start the recorder until the graph has been unlocked.
-              // This has something to do with the way the Selector block works.
-              // the stop_inactive_recorders() function handles adding and starting the P25 Recorder
-              p25_recorder_sptr rec;
-              rec = source->create_digital_conventional_recorder(tb);
-              call->set_recorder((Recorder *)rec.get());
-              calls.push_back(call);
-              
-            }
-
-            // break out of the for loop
-            break;
-          }
-        }
-        if (!channel_added) {
+        if (!source) {
           BOOST_LOG_TRIVIAL(error) << "[" << system->get_short_name() << "]\t Unable to find a source for this conventional channel! Channel not added: " << FormatFreq(channel) << " Talkgroup: " << tg_iterate_index;
+          continue;
+        }
+
+        if (system->get_squelch_db() == -160) {
+          BOOST_LOG_TRIVIAL(error) << "[" << system->get_short_name() << "]\tSquelch needs to be specified for the Source for Conventional Systems";
+          system_added = false;
+        } else {
+          system_added = true;
+        }
+
+        // This source can be used for this channel (and a squelch is set)
+        BOOST_LOG_TRIVIAL(info) << "[" << system->get_short_name() << "]\tMonitoring Conventional Channel: " << FormatFreq(channel) << " Talkgroup: " << tg_iterate_index;
+        Call_conventional *call = new Call_conventional(tg_iterate_index, channel, system, config);
+        Talkgroup *talkgroup = system->find_talkgroup(call->get_talkgroup());
+
+        if (talkgroup) {
+          call->set_talkgroup_tag(talkgroup->alpha_tag);
+        }
+
+        if (system->get_system_type() == "conventional") {
+          analog_recorder_sptr rec;
+          rec = source->create_conventional_recorder(tb);
+          rec->start(call);
+          call->set_recorder((Recorder *)rec.get());
+          call->set_state(recording);
+          system->add_conventional_recorder(rec);
+          calls.push_back(call);
+          stats.send_recorder((Recorder *)rec.get());
+        } else { // has to be "conventional P25"
+          // Because of dynamic mod assignment we can not start the recorder until the graph has been unlocked.
+          // This has something to do with the way the Selector block works.
+          // the stop_inactive_recorders() function handles adding and starting the P25 Recorder
+          p25_recorder_sptr rec;
+          rec = source->create_digital_conventional_recorder(tb);
+          call->set_recorder((Recorder *)rec.get());
+          calls.push_back(call);
+
         }
       }
     } else {
@@ -1292,44 +1286,40 @@ bool monitor_system() {
       double control_channel_freq = system->get_current_control_channel();
       BOOST_LOG_TRIVIAL(info) << "[" << system->get_short_name() << "]\tStarted with Control Channel: " << FormatFreq(control_channel_freq);
 
-      for (vector<Source *>::iterator src_it = sources.begin(); src_it != sources.end(); src_it++) {
-        source = *src_it;
+      source = find_source_for_freq(control_channel_freq);
 
-        if ((source->get_min_hz() <= control_channel_freq) &&
-            (source->get_max_hz() >= control_channel_freq)) {
-          // The source can cover the System's control channel
-          system_added = true;
-          system->set_source(source);
+      if (!source) {
+        continue;
+      }
 
-          if (system->get_system_type() == "smartnet") {
-            // what you really need to do is go through all of the sources to find
-            // the one with the right frequencies
-            system->smartnet_trunking = make_smartnet_trunking(control_channel_freq,
-                                                               source->get_center(),
-                                                               source->get_rate(),
-                                                               msg_queue,
-                                                               system->get_sys_num());
-            tb->connect(source->get_src_block(), 0, system->smartnet_trunking, 0);
-          }
+      system_added = true;
+      system->set_source(source);
 
-          if (system->get_system_type() == "p25") {
-            // what you really need to do is go through all of the sources to find
-            // the one with the right frequencies
-            system->p25_trunking = make_p25_trunking(control_channel_freq,
-                                                     source->get_center(),
-                                                     source->get_rate(),
-                                                     msg_queue,
-                                                     system->get_qpsk_mod(),
-                                                     system->get_sys_num());
-            tb->connect(source->get_src_block(), 0, system->p25_trunking, 0);
-          }
+      if (system->get_system_type() == "smartnet") {
+        // what you really need to do is go through all of the sources to find
+        // the one with the right frequencies
+        system->smartnet_trunking = make_smartnet_trunking(control_channel_freq,
+                                                            source->get_center(),
+                                                            source->get_rate(),
+                                                            msg_queue,
+                                                            system->get_sys_num());
+        tb->connect(source->get_src_block(), 0, system->smartnet_trunking, 0);
+      }
 
-          // break out of the For Loop
-          break;
-        }
+      if (system->get_system_type() == "p25") {
+        // what you really need to do is go through all of the sources to find
+        // the one with the right frequencies
+        system->p25_trunking = make_p25_trunking(control_channel_freq,
+                                                  source->get_center(),
+                                                  source->get_rate(),
+                                                  msg_queue,
+                                                  system->get_qpsk_mod(),
+                                                  system->get_sys_num());
+        tb->connect(source->get_src_block(), 0, system->p25_trunking, 0);
       }
     }
   }
+
   return system_added;
 }
 
